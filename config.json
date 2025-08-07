@@ -1,0 +1,21 @@
+{
+  "infrastructure": {
+    "hcloud_token": "hetzner cloud token",
+    "ssh_key_path": "path to public ssh key",
+    "my_ip": "your public IP address",
+    "server_type": "cpx11",
+    "server_location": "ash",
+    "server_name": "test_server",
+    "github_repo": "https://github.com/...",
+    "ssh_key_name": "my-ssh-key",
+    "firewall_name": "firewall-web",
+    "user_name": "ubuntu",
+    "image_type": "ubuntu-22.04"
+  },
+  "application": {
+    "app_name": "app",
+    "domain": "domain.com",
+    "app_port": 3000,
+    "docker_port": 8080
+  }
+}

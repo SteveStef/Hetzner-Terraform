@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  # Your application container
+  app:
+    build: ./${APP_NAME}
+    container_name: ${APP_NAME}
+    ports:
+      - "${APP_PORT}:${DOCKER_PORT}"
+    environment:
+      - VARIABLE=test
+    restart: unless-stopped
