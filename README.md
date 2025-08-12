@@ -167,3 +167,9 @@ tail -f /var/log/nginx/access.log
 | `debian-11` | Debian 11 | Alternative to Ubuntu |
 | `centos-stream-9` | CentOS Stream 9 | Enterprise environments |
 | `fedora-39` | Fedora 39 | Latest features |
+
+### Helpful commands
+```
+ssh-keygen -R IP
+```
+
