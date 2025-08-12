@@ -17,5 +17,21 @@
     "domain": "domain.com",
     "app_port": 3000,
     "docker_port": 8080
+  },
+  "backup": {
+    "enabled": true,
+    "minio_endpoint": "https://storage.example.com",
+    "minio_access_key": "your_minio_access_key",
+    "minio_secret_key": "your_minio_secret_key",
+    "backup_bucket": "database-backups",
+    "retention_count": 3,
+    "schedule": "daily_2am"
+  },
+  "database": {
+    "enabled": true,
+    "name": "default",
+    "user": "root",
+    "password": "your_database_password",
+    "container_name": "mysql-db"
   }
 }

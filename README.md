@@ -1,9 +1,9 @@
 # Terraform Deployment
 
-Automated deployment of a Spring Boot cleaning business app using Terraform (Hetzner Cloud) and Docker Compose.
+Automated deployment with Terraform (Hetzner Cloud), Docker Compose, and automated database backups to MinIO.
 
 ### Note you only need to edit the following:
-1. `config.json` for all application properties
+1. `config.json` for all application, database, and backup properties
 2. `docker-compose.yml` for environment variables and containers 
 3. `origin.pem` and `private.key` with cloudflare credentials
 
@@ -29,6 +29,8 @@ terraform apply
 ├── generate-config.sh       # Generates all config files
 ├── terraform.tfvars         # Generated: Infrastructure config
 ├── .env                     # Generated: Docker Compose variables
+├── backup-script.sh         # Generated: Database backup script
+├── setup-backup-timer.sh    # Generated: Systemd timer setup
 ├── docker-compose.yml       # Container orchestration
 ├── main.tf                  # Infrastructure definition
 └── certs/                   # SSL certificates from Cloudflare
@@ -49,12 +51,25 @@ terraform apply
 - **`server_type`**: `cpx11` (€4.90/month) or `cpx21` (€9.90/month)
 - **`server_location`**: `ash` (US East), `nbg1` (Germany), `hil` (US West)
 
+### Backup Config (Optional)
+- **`backup.enabled`**: Enable/disable automated database backups
+- **`backup.minio_endpoint`**: MinIO server URL for backup storage
+- **`backup.retention_count`**: Number of backups to keep (default: 3)
+- **`backup.schedule`**: Backup frequency (daily at 2AM)
+
+### Database Config (Optional)
+- **`database.enabled`**: Enable/disable database container
+- **`database.name`**: Database name to backup
+- **`database.password`**: Database root password
+
 ## Common Issues
 
 - **Can't SSH**: Check `my_ip` matches your current IP
 - **App won't start**: Verify `docker_port` matches Spring Boot port
 - **Domain not working**: Ensure `domain` matches Cloudflare exactly
 - **Database connection**: Check logs with `docker-compose logs -f`
+- **Backup failing**: Check backup logs with `sudo journalctl -u backup.service -f`
+- **MinIO connection**: Verify MinIO credentials and endpoint in config.json
 
 ## Useful Commands
 
@@ -135,11 +150,133 @@ tail -f /var/log/nginx/error.log
 tail -f /var/log/nginx/access.log
 ```
 
+### Backup System Commands
+```bash
+# Check backup timer status
+sudo systemctl status backup.timer
+
+# Check backup service status  
+sudo systemctl status backup.service
+
+# View backup logs (live)
+sudo journalctl -u backup.service -f
+
+# View backup logs (last 24 hours)
+sudo journalctl -u backup.service --since "24 hours ago"
+
+# View backup script log file
+tail -f /var/log/database-backup.log
+
+# List all systemd timers
+systemctl list-timers
+
+# Manually trigger backup (for testing)
+sudo systemctl start backup.service
+
+# Stop backup timer
+sudo systemctl stop backup.timer
+
+# Disable backup timer
+sudo systemctl disable backup.timer
+
+# Re-enable backup timer
+sudo systemctl enable backup.timer
+sudo systemctl start backup.timer
+```
+
+### MinIO Client Commands
+```bash
+# Install MinIO client (if not auto-installed)
+wget https://dl.min.io/client/mc/release/linux-amd64/mc
+chmod +x mc
+sudo mv mc /usr/local/bin/
+
+# Configure MinIO connection
+mc alias set backup-server https://your-minio-endpoint ACCESS_KEY SECRET_KEY --insecure
+
+# List all buckets
+mc ls backup-server
+
+# List backup files
+mc ls backup-server/database-backups/
+
+# Check backup file sizes and dates
+mc ls -r backup-server/database-backups/
+
+# Download a specific backup
+mc cp backup-server/database-backups/db_backup_20240101_020000.sql.gz /tmp/
+
+# Monitor backup uploads in real-time
+watch -n 5 'mc ls backup-server/database-backups/'
+```
+
+### Backup Troubleshooting
+```bash
+# Check if backup script exists and is executable
+ls -la /home/ubuntu/backup-script.sh
+
+# Test backup script manually
+sudo -u ubuntu /home/ubuntu/backup-script.sh
+
+# Check MinIO client is installed
+mc --version
+
+# Test MinIO connection
+mc ls backup-server 2>&1
+
+# Check if database container is running
+docker ps | grep mysql
+
+# Test database connection from backup script perspective
+docker exec mysql-db mysqladmin -uroot -pYOUR_PASSWORD ping
+
+# Check backup script variables
+head -20 /home/ubuntu/backup-script.sh
+
+# View systemd service definition
+cat /etc/systemd/system/backup.service
+
+# View systemd timer definition  
+cat /etc/systemd/system/backup.timer
+
+# Check systemd service logs for errors
+sudo systemctl status backup.service -l
+```
+
+## Backup System Overview
+
+The system automatically:
+1. **Creates database backups** daily at 2:00 AM
+2. **Compresses backups** (.sql.gz format) to save space
+3. **Uploads to MinIO** object storage server
+4. **Maintains retention** (keeps only specified number of backups)
+5. **Logs all operations** for monitoring and troubleshooting
+
+### Key Backup Files:
+- `/var/log/database-backup.log` - Backup script log file
+- `/etc/systemd/system/backup.service` - Systemd service definition
+- `/etc/systemd/system/backup.timer` - Systemd timer (schedule)
+- `/home/ubuntu/backup-script.sh` - Main backup script
+
+### Backup Monitoring:
+```bash
+# Quick backup status check
+sudo systemctl status backup.timer backup.service
+
+# View recent backup activity
+tail -20 /var/log/database-backup.log
+
+# Check next scheduled backup
+systemctl list-timers backup.timer
+```
+
 ## Security
 
-- Never commit `terraform.tfvars` or `.env` to git
+- Never commit `terraform.tfvars`, `.env`, or `backup-script.sh` to git
 - Update `my_ip` when your IP changes
 - Keep SSL certificates current in Cloudflare
+- Store MinIO credentials securely in config.json
+- Regularly test backup restoration process
 
 ## Server Instance Types
 
