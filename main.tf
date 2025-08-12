@@ -7,6 +7,25 @@ terraform {
   }
 }
 
+# Check if backup files exist when backup is enabled
+locals {
+  backup_script_exists = var.backup_enabled ? fileexists("${path.module}/backup-script.sh") : true
+  setup_script_exists = var.backup_enabled ? fileexists("${path.module}/setup-backup-timer.sh") : true
+}
+
+# Validation for backup files
+check "backup_files_validation" {
+  assert {
+    condition = local.backup_script_exists
+    error_message = "backup-script.sh not found. Run './generate-config.sh' first to generate backup scripts."
+  }
+  
+  assert {
+    condition = local.setup_script_exists
+    error_message = "setup-backup-timer.sh not found. Run './generate-config.sh' first to generate backup scripts."
+  }
+}
+
 # Provider
 provider "hcloud" {
   token = var.hcloud_token
@@ -58,8 +77,8 @@ resource "hcloud_server" "node1" {
     packages:
       - nginx
       - docker.io
-      - docker-compose
       - git
+      - curl
 
     users:
       - name: ${var.user_name}
@@ -92,11 +111,35 @@ resource "hcloud_server" "node1" {
         encoding: b64
         permissions: '0644'
 
+      - path: /home/${var.user_name}/health-check.sh
+        content: ${base64encode(file("${path.module}/health-check.sh"))}
+        encoding: b64
+        permissions: '0755'
+%{ if var.backup_enabled }
+      - path: /home/${var.user_name}/backup-script.sh
+        content: ${base64encode(file("${path.module}/backup-script.sh"))}
+        encoding: b64
+        permissions: '0755'
+
+      - path: /home/${var.user_name}/setup-backup-timer.sh
+        content: ${base64encode(file("${path.module}/setup-backup-timer.sh"))}
+        encoding: b64
+        permissions: '0755'
+
+      - path: /home/${var.user_name}/restore-backup.sh
+        content: ${base64encode(file("${path.module}/restore-backup.sh"))}
+        encoding: b64
+        permissions: '0755'
+%{ endif }
+
     runcmd:
       - mkdir -p /etc/ssl/mycerts
       - systemctl start docker
       - systemctl enable docker
       - usermod -aG docker ${var.user_name}
+      - curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+      - chmod +x /usr/local/bin/docker-compose
+      - ln -sf /usr/local/bin/docker-compose /usr/bin/docker-compose
       - cd /home/${var.user_name}
       - git clone ${var.github_repo} ${var.app_name}
       - chown -R ${var.user_name}:${var.user_name} /home/${var.user_name}
@@ -104,6 +147,17 @@ resource "hcloud_server" "node1" {
       - nginx -t
       - systemctl restart nginx
       - systemctl enable nginx
+%{ if var.backup_enabled }
+      - curl -o /tmp/cloudflare-origin-ca.pem https://developers.cloudflare.com/ssl/static/origin_ca_rsa_root.pem
+      - cp /tmp/cloudflare-origin-ca.pem /usr/local/share/ca-certificates/cloudflare-origin-ca.crt
+      - update-ca-certificates
+      - wget https://dl.min.io/client/mc/release/linux-amd64/mc -O /usr/local/bin/mc
+      - chmod +x /usr/local/bin/mc
+      - /home/${var.user_name}/setup-backup-timer.sh ${var.user_name}
+      - sleep 30
+      - /home/${var.user_name}/restore-backup.sh
+      - cd /home/${var.user_name} && docker-compose restart
+%{ endif }
   EOF
 
   public_net {

@@ -1,7 +1,6 @@
 version: '3.8'
 
 services:
-  # Your application container
   app:
     build: ./${APP_NAME}
     container_name: ${APP_NAME}
@@ -9,4 +8,30 @@ services:
       - "${APP_PORT}:${DOCKER_PORT}"
     environment:
       - VARIABLE=test
+      - DB_HOST=${DB_CONTAINER_NAME}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=root
+      - DB_PASSWORD=${DB_PASSWORD}
+    depends_on:
+      mysql:
+        condition: service_healthy
     restart: unless-stopped
+
+  mysql:
+    image: mysql:8.0
+    container_name: ${DB_CONTAINER_NAME}
+    environment:
+      - MYSQL_ROOT_PASSWORD=${DB_PASSWORD}
+      - MYSQL_DATABASE=${DB_NAME}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD}"]
+      timeout: 20s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  mysql_data:

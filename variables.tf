@@ -68,3 +68,9 @@ variable "user_name" {
   type        = string
   default     = "ubuntu"
 }
+
+variable "backup_enabled" {
+  description = "Whether backup system is enabled"
+  type        = bool
+  default     = false
+}
