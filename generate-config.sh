@@ -355,23 +355,19 @@ SYSTEMD_EOF
 sed -i "s/USER_PLACEHOLDER/$USER_NAME/g" /etc/systemd/system/backup.service
 
 # Create systemd backup timer
-cat > /etc/systemd/system/backup.timer << "SYSTEMD_EOF"
+cat > /etc/systemd/system/backup.timer << SYSTEMD_EOF
 [Unit]
-Description=Run Database Backup (SCHEDULE_PLACEHOLDER)
+Description=Run Database Backup ($BACKUP_SCHEDULE)
 Requires=backup.service
 
 [Timer]
-OnCalendar=SYSTEMD_SCHEDULE_PLACEHOLDER
+OnCalendar=$SYSTEMD_SCHEDULE
 Persistent=true
 AccuracySec=1min
 
 [Install]
 WantedBy=timers.target
 SYSTEMD_EOF
-
-# Replace placeholders with actual values
-sed -i "s|SCHEDULE_PLACEHOLDER|$BACKUP_SCHEDULE|g" /etc/systemd/system/backup.timer
-sed -i "s|SYSTEMD_SCHEDULE_PLACEHOLDER|$SYSTEMD_SCHEDULE|g" /etc/systemd/system/backup.timer
 
 # Enable and start the timer
 systemctl daemon-reload
@@ -383,9 +379,9 @@ EOF
 
     chmod +x setup-backup-timer.sh
     
-    # Replace placeholders in the generated script
-    sed -i "s|SCHEDULE_PLACEHOLDER|$BACKUP_SCHEDULE|g" setup-backup-timer.sh
-    sed -i "s|SYSTEMD_SCHEDULE_PLACEHOLDER|$SYSTEMD_SCHEDULE|g" setup-backup-timer.sh
+    # Replace schedule variables in the generated script with actual values
+    sed -i "s|\$BACKUP_SCHEDULE|$BACKUP_SCHEDULE|g" setup-backup-timer.sh
+    sed -i "s|\$SYSTEMD_SCHEDULE|$SYSTEMD_SCHEDULE|g" setup-backup-timer.sh
     
     echo -e "${GREEN}✅ setup-backup-timer.sh created${NC}"
 
@@ -579,7 +575,151 @@ fi
 chmod +x health-check.sh
 echo -e "${GREEN}✅ health-check.sh created with conditional checks${NC}"
 
-# 7. Create backup restore script if backup is enabled
+# 7. Create application redeployment script
+echo -e "${BLUE}📝 Creating redeploy-app.sh...${NC}"
+
+cat > redeploy-app.sh << 'REDEPLOY_EOF'
+#!/bin/bash
+
+# Colors for output
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+echo -e "${BLUE}🔄 Application Redeployment Script${NC}"
+echo -e "${BLUE}=================================${NC}"
+
+# Configuration - Generated from config.json
+GITHUB_REPO="GITHUB_REPO_PLACEHOLDER"
+APP_NAME="APP_NAME_PLACEHOLDER"
+USER_NAME="USER_NAME_PLACEHOLDER"
+
+# Validate required variables
+if [ -z "$GITHUB_REPO" ]; then
+    echo -e "${RED}❌ Error: GitHub repository not configured${NC}"
+    exit 1
+fi
+
+if [ -z "$APP_NAME" ]; then
+    echo -e "${RED}❌ Error: App name not configured${NC}"
+    exit 1
+fi
+
+echo -e "${GREEN}✅ Configuration loaded:${NC}"
+echo -e "   Repository: $GITHUB_REPO"
+echo -e "   App Name: $APP_NAME"
+echo -e "   User: $USER_NAME"
+
+# Extract repository name from GitHub URL
+REPO_NAME=$(basename "$GITHUB_REPO" .git)
+APP_DIR="/home/$USER_NAME/$REPO_NAME"
+
+echo -e "\n${BLUE}🗑️  Removing existing application directory...${NC}"
+if [ -d "$APP_DIR" ]; then
+    rm -rf "$APP_DIR"
+    echo -e "${GREEN}✅ Removed: $APP_DIR${NC}"
+else
+    echo -e "${YELLOW}⚠️  Directory not found: $APP_DIR${NC}"
+fi
+
+echo -e "\n${BLUE}📥 Cloning fresh copy from GitHub...${NC}"
+cd "/home/$USER_NAME" || {
+    echo -e "${RED}❌ Error: Cannot access /home/$USER_NAME directory${NC}"
+    exit 1
+}
+
+if git clone "$GITHUB_REPO"; then
+    echo -e "${GREEN}✅ Successfully cloned: $GITHUB_REPO${NC}"
+else
+    echo -e "${RED}❌ Error: Failed to clone repository${NC}"
+    exit 1
+fi
+
+echo -e "\n${BLUE}🐳 Stopping existing app container...${NC}"
+cd "$APP_DIR" || {
+    echo -e "${RED}❌ Error: Cannot access cloned directory: $APP_DIR${NC}"
+    exit 1
+}
+
+# Stop and remove the specific app container
+echo "Checking for existing containers with name: $APP_NAME"
+
+# First, try to stop using docker-compose (graceful shutdown)
+if [ -f "docker-compose.yml" ]; then
+    echo -e "${BLUE}🛑 Stopping container via docker-compose...${NC}"
+    docker-compose stop "$APP_NAME" 2>/dev/null || echo -e "${YELLOW}⚠️  docker-compose stop failed, trying direct docker commands${NC}"
+fi
+
+# Check if container is still running and force stop if needed
+RUNNING_CONTAINER=$(docker ps -q --filter "name=$APP_NAME" 2>/dev/null)
+if [ -n "$RUNNING_CONTAINER" ]; then
+    echo -e "${YELLOW}🛑 Force stopping running container: $APP_NAME${NC}"
+    docker stop "$APP_NAME" || echo -e "${RED}❌ Failed to stop container${NC}"
+    sleep 2  # Give it a moment to stop
+fi
+
+# Remove any existing container (stopped or running)
+EXISTING_CONTAINER=$(docker ps -aq --filter "name=$APP_NAME" 2>/dev/null)
+if [ -n "$EXISTING_CONTAINER" ]; then
+    echo -e "${BLUE}🗑️  Removing existing container: $APP_NAME${NC}"
+    docker rm -f "$APP_NAME" 2>/dev/null || echo -e "${RED}❌ Failed to remove container${NC}"
+    echo -e "${GREEN}✅ Container removed: $APP_NAME${NC}"
+else
+    echo -e "${YELLOW}⚠️  No existing container found with name: $APP_NAME${NC}"
+fi
+
+# Clean up any orphaned containers from the same compose project
+if [ -f "docker-compose.yml" ]; then
+    echo -e "${BLUE}🧹 Cleaning up orphaned containers...${NC}"
+    docker-compose down --remove-orphans 2>/dev/null || true
+fi
+
+echo -e "\n${BLUE}🔧 Starting fresh app container...${NC}"
+# Start only the specific app service from docker-compose
+if [ -f "docker-compose.yml" ]; then
+    docker-compose up -d "$APP_NAME"
+    echo -e "${GREEN}✅ Started container: $APP_NAME${NC}"
+else
+    echo -e "${RED}❌ Error: docker-compose.yml not found in $APP_DIR${NC}"
+    exit 1
+fi
+
+echo -e "\n${BLUE}🔍 Verifying deployment...${NC}"
+sleep 5  # Wait a moment for container to start
+
+# Check if container is running
+if docker ps --filter "name=$APP_NAME" --filter "status=running" | grep -q "$APP_NAME"; then
+    echo -e "${GREEN}✅ Container $APP_NAME is running${NC}"
+    
+    # Show container logs (last 10 lines)
+    echo -e "\n${BLUE}📋 Recent container logs:${NC}"
+    docker logs --tail 10 "$APP_NAME"
+    
+    echo -e "\n${GREEN}🎉 Application redeployment completed successfully!${NC}"
+    echo -e "${BLUE}💡 To view live logs: ${YELLOW}docker logs -f $APP_NAME${NC}"
+else
+    echo -e "${RED}❌ Container failed to start. Check logs with: docker logs $APP_NAME${NC}"
+    exit 1
+fi
+
+echo -e "\n${BLUE}📊 Deployment Summary:${NC}"
+echo -e "   Repository: $GITHUB_REPO"
+echo -e "   App Directory: $APP_DIR"
+echo -e "   Container: $APP_NAME"
+echo -e "   Status: ${GREEN}Running${NC}"
+REDEPLOY_EOF
+
+# Replace placeholders with actual values
+sed -i "s|GITHUB_REPO_PLACEHOLDER|$GITHUB_REPO|g" redeploy-app.sh
+sed -i "s|APP_NAME_PLACEHOLDER|$APP_NAME|g" redeploy-app.sh
+sed -i "s|USER_NAME_PLACEHOLDER|$USER_NAME|g" redeploy-app.sh
+
+chmod +x redeploy-app.sh
+echo -e "${GREEN}✅ redeploy-app.sh created with configuration variables${NC}"
+
+# 8. Create backup restore script if backup is enabled
 if [ "$BACKUP_ENABLED" = "true" ] && [ "$DB_ENABLED" = "true" ]; then
     echo -e "${BLUE}📝 Creating restore-backup.sh...${NC}"
     
@@ -737,9 +877,11 @@ echo -e "  - terraform.tfvars (infrastructure variables)"
 echo -e "  - nginx.conf (domain: $DOMAIN, port: $APP_PORT)"
 echo -e "  - .env (essential docker-compose variables)"
 echo -e "  - health-check.sh (system monitoring script)"
+echo -e "  - redeploy-app.sh (application redeployment script)"
 if [ "$BACKUP_ENABLED" = "true" ] && [ "$DB_ENABLED" = "true" ]; then
     echo -e "  - backup-script.sh (database backup with MinIO)"
     echo -e "  - setup-backup-timer.sh (systemd timer setup)"
+    echo -e "  - restore-backup.sh (database restore script)"
 fi
 
 echo -e "${BLUE}🚀 Next steps:${NC}"
@@ -748,7 +890,5 @@ echo -e "  2. docker-compose up -d (uses .env automatically)"
 if [ "$BACKUP_ENABLED" = "true" ]; then
     echo -e "  3. Backup system will be automatically configured and running $BACKUP_SCHEDULE"
 fi
+echo -e "  ${YELLOW}💡 Use ./redeploy-app.sh to redeploy your application with fresh code${NC}"
 
-# 7. Show preview of generated .env
-echo -e "${YELLOW}📄 Preview of generated .env file:${NC}"
-head -10 .env
