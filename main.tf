@@ -9,20 +9,20 @@ terraform {
 
 # Check if backup files exist when backup is enabled
 locals {
-  backup_script_exists = var.backup_enabled ? fileexists("${path.module}/backup-script.sh") : true
-  setup_script_exists = var.backup_enabled ? fileexists("${path.module}/setup-backup-timer.sh") : true
+  backup_script_exists = var.backup_enabled ? fileexists("${path.module}/build/backup-script.sh") : true
+  setup_script_exists = var.backup_enabled ? fileexists("${path.module}/build/setup-backup-timer.sh") : true
 }
 
 # Validation for backup files
 check "backup_files_validation" {
   assert {
     condition = local.backup_script_exists
-    error_message = "backup-script.sh not found. Run './generate-config.sh' first to generate backup scripts."
+    error_message = "build/backup-script.sh not found. Run './generate-config.sh' first to generate backup scripts."
   }
   
   assert {
     condition = local.setup_script_exists
-    error_message = "setup-backup-timer.sh not found. Run './generate-config.sh' first to generate backup scripts."
+    error_message = "build/setup-backup-timer.sh not found. Run './generate-config.sh' first to generate backup scripts."
   }
 }
 
@@ -97,7 +97,7 @@ resource "hcloud_server" "node1" {
         permissions: '0600'
 
       - path: /etc/nginx/conf.d/default.conf
-        content: ${base64encode(file("${path.module}/nginx.conf"))}
+        content: ${base64encode(file("${path.module}/build/nginx.conf"))}
         encoding: b64
         permissions: '0644'
 
@@ -107,27 +107,32 @@ resource "hcloud_server" "node1" {
         permissions: '0644'
 
       - path: /home/${var.user_name}/.env
-        content: ${base64encode(file("${path.module}/.env"))}
+        content: ${base64encode(file("${path.module}/build/.env"))}
         encoding: b64
         permissions: '0644'
 
       - path: /home/${var.user_name}/health-check.sh
-        content: ${base64encode(file("${path.module}/health-check.sh"))}
+        content: ${base64encode(file("${path.module}/build/health-check.sh"))}
+        encoding: b64
+        permissions: '0755'
+
+      - path: /home/${var.user_name}/redeploy-app.sh
+        content: ${base64encode(file("${path.module}/build/redeploy-app.sh"))}
         encoding: b64
         permissions: '0755'
 %{ if var.backup_enabled }
       - path: /home/${var.user_name}/backup-script.sh
-        content: ${base64encode(file("${path.module}/backup-script.sh"))}
+        content: ${base64encode(file("${path.module}/build/backup-script.sh"))}
         encoding: b64
         permissions: '0755'
 
       - path: /home/${var.user_name}/setup-backup-timer.sh
-        content: ${base64encode(file("${path.module}/setup-backup-timer.sh"))}
+        content: ${base64encode(file("${path.module}/build/setup-backup-timer.sh"))}
         encoding: b64
         permissions: '0755'
 
       - path: /home/${var.user_name}/restore-backup.sh
-        content: ${base64encode(file("${path.module}/restore-backup.sh"))}
+        content: ${base64encode(file("${path.module}/build/restore-backup.sh"))}
         encoding: b64
         permissions: '0755'
 %{ endif }
