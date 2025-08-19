@@ -485,16 +485,9 @@ services:
     build: 
       context: ./${APP_NAME}
       args:
-        - NEXT_PUBLIC_API_URL=https://api.chicascleaning.com
-        - NEXT_PUBLIC_GOOGLE_API_KEY=AIzaSyBIHJbs5puAHdH-dCf6HTRJs02Wy0yZ9yc
-        - NEXT_PUBLIC_APPLICATION_FEE=9.99
-        - NEXT_PUBLIC_PARTIAL_REFUND=75
-        - NEXT_PUBLIC_FULL_REFUND=92
-        - NEXT_PUBLIC_PAYPAL_CLIENT_ID=AeF_xtM-9fC1FSVum4tPSCkH3pDVWBilnCn7sYYcPnPTZ1pnriTMeG9BaxiqvxJkmCV4UGfodL23RPQj
+        - var=hello
     container_name: ${APP_NAME}
     ports:
       - "${APP_PORT}:${DOCKER_PORT}"
     restart: unless-stopped
 ```
-
-
